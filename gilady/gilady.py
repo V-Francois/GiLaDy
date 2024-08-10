@@ -1,10 +1,11 @@
 # from __future__ import annotations
 import dataclasses
-import openmm
-from openmm import unit, app
-from typing import Callable
-import _utils
 import tempfile
+from collections.abc import Callable
+
+import _utils
+import openmm
+from openmm import app, unit
 
 
 @dataclasses.dataclass
@@ -23,16 +24,11 @@ class GiLaDy:
         simulation: app.Simulation,
         max_time_to_consider: unit.Quantity = 20 * unit.picosecond,
     ) -> dict:
-
         self.simulation = simulation
 
         time_between_prints = 0.1 * unit.picosecond
-        steps_between_prints = int(
-            time_between_prints / simulation.integrator.getStepSize()
-        )
-        steps_between_lambda_changes = int(
-            max_time_to_consider / simulation.integrator.getStepSize()
-        )
+        steps_between_prints = int(time_between_prints / simulation.integrator.getStepSize())
+        steps_between_lambda_changes = int(max_time_to_consider / simulation.integrator.getStepSize())
 
         # Equilibrate
         self._update_lambda(1.0)
@@ -57,18 +53,11 @@ class GiLaDy:
                 simulation.step(steps_between_lambda_changes)
                 simulation.reporters.pop()
 
-                potential_energy = [
-                    float(x.strip()) for x in open(tmp_file.name).readlines()[1:]
-                ]
-                nb_steps_to_reach_eq = _utils.find_number_of_steps_to_reach_equilibrium(
-                    potential_energy
-                )
+                with open(tmp_file.name) as energy_file:
+                    potential_energy = [float(x.strip()) for x in energy_file.readlines()[1:]]
+                nb_steps_to_reach_eq = _utils.find_number_of_steps_to_reach_equilibrium(potential_energy)
                 if target_lambda == 0:
-                    times_dict["1_to_0"].append(
-                        nb_steps_to_reach_eq * time_between_prints
-                    )
+                    times_dict["1_to_0"].append(nb_steps_to_reach_eq * time_between_prints)
                 else:
-                    times_dict["0_to_1"].append(
-                        nb_steps_to_reach_eq * time_between_prints
-                    )
+                    times_dict["0_to_1"].append(nb_steps_to_reach_eq * time_between_prints)
         return times_dict
