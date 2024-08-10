@@ -1,0 +1,116 @@
+[tool.poetry]
+name = "gilady"
+version = "0.0.1"
+description = "Package to perform Gibbs Lambda Dynamics"
+authors = ["François Villemot <francois.villemot@gmail.com>"]
+license = "GPL3"
+readme = "README.md"
+repository = "https://github.com/V-Francois/GibbsLambdaDynamics"
+packages = [{ include = "gilady" }, { include = "gilady/**/*.py" }]
+
+[[tool.poetry.source]]
+name = "pypi"
+priority = "primary"
+
+[tool.poetry.dependencies]
+python = ">=3.9, <3.12"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.1.0"
+mypy = ">=1.7.1"
+pytest = "^6.2.1"
+pytest-cov = "^2.11.1"
+pre-commit = "2.1.0"
+taskipy = "^1.6.0"
+
+
+
+[tool.ruff]
+# See https://docs.astral.sh/ruff/rules/ for details
+select = [
+    "A",   # flake8-builtins
+    "B",   # flake8-bugbear
+    "BLE", # flake8-blind-except
+    "C4",  # flake8-comprehensions
+    "D",   # pydocstyle
+    # Additional rules for the NumPy docstring style
+    "D107", # https://docs.astral.sh/ruff/rules/undocumented-public-init/
+    "D213", # https://docs.astral.sh/ruff/rules/multi-line-summary-second-line/
+    "D402", # https://docs.astral.sh/ruff/rules/no-signature/
+    "D413", # https://docs.astral.sh/ruff/rules/blank-line-after-last-section/
+    "D417", # https://docs.astral.sh/ruff/rules/undocumented-param/
+    # END additionnal pydocstyle rules
+    "E",    # pycodestyle errors
+    "EXE",  # flake8-executable
+    "F",    # Pyflakes
+    "I001", # isort
+    "ISC",  # flake8-implicit-str-concat
+    "N",    # pep8-naming
+    "PERF", # perflint
+    "PIE",  # flake8-pie
+    "PL",   # pylint
+    "PT",   # flake8-pytest-style
+    "RUF",  # ruff's own rules
+    "S",    # flake8-bandit
+    "SIM",  # flake8-simplify
+    "T20",  # flake8-print
+    "UP",   # pyupgrade
+    "W",    # pycodestyle warnings
+]
+ignore = [
+    "D100",
+    "D101",
+    "D103",
+    "D104",
+    # Not used in NumPy, overridden in Google style
+    "D212", # https://docs.astral.sh/ruff/rules/multi-line-summary-first-line/
+    "D415", # https://docs.astral.sh/ruff/rules/ends-in-punctuation/
+    "T201",
+    "S603",
+]
+line-length = 140
+target-version = "py311"
+# Also lint & format notebooks
+extend-include = ["*.ipynb"]
+# use extend-exclude to ignore more files, e.g. dev notebooks (not example notebooks!)
+# https://docs.astral.sh/ruff/settings/#extend-exclude
+extend-exclude = []
+
+
+[tool.ruff.lint.pydocstyle]
+# Do not complain about the docstring of typing-only construct
+ignore-decorators = ["typing.overload"]
+convention = "numpy" 
+
+[tool.mypy]
+namespace_packages = true
+explicit_package_bases = true
+no_implicit_optional = true
+strict_optional = true
+no_implicit_reexport = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+ignore_missing_imports = true
+
+
+[tool.pytest.ini_options]
+markers = [""]
+
+
+[tool.taskipy.tasks]
+format-ruff-fix = "ruff check --fix-only ."
+pre_format-ruff-format = 'printf "\001\033[1;96m\002info: Ignore the warning below about the formatter conflicting with rule ISC001\001\033[0m\002\n"'
+format-ruff-format = "ruff format ."
+format = "task format-ruff-fix && task format-ruff-format && task format-ruff-fix"
+
+lint = "ruff check ."
+check-formatting = "ruff format --check ."
+check-typing = "mypy ."
+test = "python -m pytest tests/ --cov=gilady"
+all = "task format && task check-formatting && task lint && task check-typing && task test"
+
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
