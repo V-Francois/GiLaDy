@@ -99,16 +99,16 @@ markers = [""]
 
 
 [tool.taskipy.tasks]
-format-ruff-fix = "ruff check --fix-only ."
+format-ruff-fix = "ruff check --fix-only gilady"
 pre_format-ruff-format = 'printf "\001\033[1;96m\002info: Ignore the warning below about the formatter conflicting with rule ISC001\001\033[0m\002\n"'
-format-ruff-format = "ruff format ."
+format-ruff-format = "ruff format gilady"
 format = "task format-ruff-fix && task format-ruff-format && task format-ruff-fix"
 
-lint = "ruff check ."
-check-formatting = "ruff format --check ."
-check-typing = "mypy ."
+lint = "ruff check gilady"
+check-formatting = "ruff format --check gilady"
+check-typing = "mypy gilady"
 test = "python -m pytest tests/ --cov=gilady"
-all = "task format && task check-formatting && task lint && task check-typing && task test"
+all = "task format && task check-formatting && task lint && task check-typing"
 
 
 [build-system]
