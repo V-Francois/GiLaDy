@@ -20,7 +20,16 @@ class GiLaDy:
     lambdas: list[float] | None = None
 
     def _update_lambda(self, new_lambda: float) -> None:
-        # TODO: do it slowly to avoid insane clashes when moving from no LJ to LJ
+        # Large changes in lambda, especially from a fully non interacting system
+        # to a interacting one, could create big clashes and result in NaNs
+        # So we do a series of minimizations for some intermediary values of lambda
+        for intermediary_lambda in np.linspace(
+            self.current_lambda,
+            new_lambda,
+            num=int(abs((self.current_lambda - new_lambda) / 0.05)),
+        ):
+            self.lambda_updator(self.simulation.context, intermediary_lambda)
+            self.simulation.minimizeEnergy()
         self.lambda_updator(self.simulation.context, new_lambda)
         self.simulation.minimizeEnergy()
         self.current_lambda = new_lambda
