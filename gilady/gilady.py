@@ -38,6 +38,7 @@ class GiLaDy:
         self,
         max_time_to_consider: unit.Quantity = 20 * unit.picosecond,
     ) -> dict:
+        """Find characteristic time of the lambda change."""
         time_between_prints = 0.1 * unit.picosecond
         steps_between_prints = int(time_between_prints / self.simulation.integrator.getStepSize())
         steps_between_lambda_changes = int(max_time_to_consider / self.simulation.integrator.getStepSize())
@@ -110,6 +111,7 @@ class GiLaDy:
         lambdas: list[float],
         time_between_lambda_change: unit.Quantity = 10 * unit.picosecond,
     ) -> np.ndarray:
+        """Run Gibbs Lambda Dynamics."""
         self.lambdas = lambdas
 
         total_number_of_energy_evaluations = self.number_swap_before_bias_update * self.number_cycle_of_bias_update
