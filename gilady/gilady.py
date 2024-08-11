@@ -1,7 +1,6 @@
-# from __future__ import annotations
 import dataclasses
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 import _utils
 import numpy as np
@@ -17,7 +16,7 @@ class GiLaDy:
     current_lambda: float = 1.0
     number_swap_before_bias_update: int = 10
     number_cycle_of_bias_update: int = 4
-    lambdas: list[float] | None = None
+    lambdas: list[float] = dataclasses.field(default_factory=list)
 
     def _update_lambda(self, new_lambda: float) -> None:
         # Large changes in lambda, especially from a fully non interacting system
@@ -49,7 +48,7 @@ class GiLaDy:
         self.simulation.step(steps_between_lambda_changes)
 
         n_round_trips = 10
-        times_dict = {"0_to_1": [], "1_to_0": []}
+        times_dict: dict[str, list[float]] = {"0_to_1": [], "1_to_0": []}
         tmp_file = tempfile.NamedTemporaryFile()
         for _ in range(n_round_trips):
             for target_lambda in [0.0, 1.0]:
@@ -88,7 +87,7 @@ class GiLaDy:
             energies.append(self.simulation.context.getState(getEnergy=True).getPotentialEnergy())
         return np.array([e.value_in_unit(unit.kilocalorie_per_mole) for e in energies])
 
-    def _run_mbar(self, energies: np.ndarray, lambda_sampled: np.ndarray) -> np.ndarray:
+    def _run_mbar(self, energies: np.ndarray, lambda_sampled: Iterable[float]) -> np.ndarray:
         kbt = (self.simulation.integrator.getTemperature() * unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA).value_in_unit(
             unit.kilocalorie_per_mole
         )
@@ -104,7 +103,7 @@ class GiLaDy:
                 u_nk[counter, :] = energies[index, :] / kbt
                 counter += 1
         mbar_object = mbar.MBAR(u_nk.T, n_k)
-        return mbar_object.compute_free_energy_differences()["Delta_f"][0] * kbt
+        return np.array(mbar_object.compute_free_energy_differences()["Delta_f"][0] * kbt)
 
     def run(
         self,
