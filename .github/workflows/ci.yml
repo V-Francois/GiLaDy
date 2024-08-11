@@ -1,0 +1,31 @@
+name: Code checking
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  check-code:
+    name: Run checking
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+
+      - name: Install poetry
+        run: pipx install poetry
+
+      - name: Install dependencies
+        run: poetry install --all-extras
+
+      - name: Lint
+        run: poetry run task lint
+
+      - name: Check format
+        run: poetry run task check-formatting
+
+      - name: Check type
+        run: poetry run task check-typing
+
