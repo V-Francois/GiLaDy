@@ -1,6 +1,6 @@
 import dataclasses
 import tempfile
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 
 import _utils
 import numpy as np
@@ -11,12 +11,18 @@ from pymbar import mbar
 
 @dataclasses.dataclass
 class GiLaDy:
+    # To setup at init
     simulation: app.Simulation
     lambda_updator: Callable[[openmm.Context, float], None]
+
+    # Not to be changed by the user
+    # TODO: make private
     current_lambda: float = 1.0
-    number_swap_before_bias_update: int = 10
-    number_cycle_of_bias_update: int = 4
     lambdas: list[float] = dataclasses.field(default_factory=list)
+    lambdas_sampled: list[float] = dataclasses.field(default_factory=list)
+    lambdas_counts: np.ndarray = dataclasses.field(default_factory=lambda: np.array([], dtype=int))
+    current_biases: np.ndarray = dataclasses.field(default_factory=lambda: np.array([], dtype=float))
+    free_energy_convergence: list[np.ndarray] = dataclasses.field(default_factory=list)
 
     def _update_lambda(self, new_lambda: float) -> None:
         # Large changes in lambda, especially from a fully non interacting system
@@ -74,11 +80,25 @@ class GiLaDy:
                     times_dict["0_to_1"].append(nb_steps_to_reach_eq * time_between_prints)
         return times_dict
 
-    def _select_new_lambda(self) -> float:
-        return np.random.choice(self.lambdas)
+    def _select_new_lambda(self, energy_this_step: np.ndarray) -> float:
+        # Eq.4, with bigger bias at first run
+        penalty = 10.0 if all(self.current_biases == 0) else 1.0
+        bias_based_on_frequency = penalty * 2 ** (self.lambdas_counts - min(self.lambdas_counts))
+        energy_plus_bias = energy_this_step + self.current_biases + bias_based_on_frequency
+        kbt = (self.simulation.integrator.getTemperature() * unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA).value_in_unit(
+            unit.kilocalorie_per_mole
+        )
+        probas = np.exp(-(energy_plus_bias - min(energy_plus_bias)) / kbt)
+        probas /= np.sum(probas)
 
-    def _update_biases(self) -> None:
-        pass
+        new_lambda = np.random.choice(self.lambdas, p=probas)
+
+        return new_lambda
+
+    def _update_biases(self, energies: np.ndarray) -> None:
+        current_free_energies = self._run_mbar(energies)
+        self.free_energy_convergence.append(current_free_energies)
+        self.current_biases = -current_free_energies
 
     def _compute_energies(self) -> np.ndarray:
         energies = []
@@ -87,7 +107,7 @@ class GiLaDy:
             energies.append(self.simulation.context.getState(getEnergy=True).getPotentialEnergy())
         return np.array([e.value_in_unit(unit.kilocalorie_per_mole) for e in energies])
 
-    def _run_mbar(self, energies: np.ndarray, lambda_sampled: Iterable[float]) -> np.ndarray:
+    def _run_mbar(self, energies: np.ndarray) -> np.ndarray:
         kbt = (self.simulation.integrator.getTemperature() * unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA).value_in_unit(
             unit.kilocalorie_per_mole
         )
@@ -97,23 +117,29 @@ class GiLaDy:
         n_k = np.zeros(len(self.lambdas))
         counter = 0
         for lambda_index, lambda_value in enumerate(self.lambdas):
-            indices_where_lambda_was_sampled = np.where([lbd == lambda_value for lbd in lambda_sampled])[0]
+            indices_where_lambda_was_sampled = np.where([lbd == lambda_value for lbd in self.lambdas_sampled])[0]
             n_k[lambda_index] = len(indices_where_lambda_was_sampled)
             for index in indices_where_lambda_was_sampled:
                 u_nk[counter, :] = energies[index, :] / kbt
                 counter += 1
         mbar_object = mbar.MBAR(u_nk.T, n_k)
+
         return np.array(mbar_object.compute_free_energy_differences()["Delta_f"][0] * kbt)
 
     def run(
         self,
         lambdas: list[float],
+        number_swap_before_bias_update: int = 10,
+        number_cycle_of_bias_update: int = 4,
         time_between_lambda_change: unit.Quantity = 10 * unit.picosecond,
-    ) -> np.ndarray:
+    ) -> dict:
         """Run Gibbs Lambda Dynamics."""
         self.lambdas = lambdas
+        self.lambdas_counts = np.zeros(len(self.lambdas))
+        self.current_biases = np.zeros(len(self.lambdas))
+        self.lambdas_sampled = []
 
-        total_number_of_energy_evaluations = self.number_swap_before_bias_update * self.number_cycle_of_bias_update
+        total_number_of_energy_evaluations = number_swap_before_bias_update * number_cycle_of_bias_update
         energies = np.zeros((total_number_of_energy_evaluations, len(lambdas)))
 
         # Start from a random lambda state
@@ -121,17 +147,25 @@ class GiLaDy:
         self._update_lambda(self.current_lambda)
 
         number_md_steps_between_lambda_change = int(time_between_lambda_change / self.simulation.integrator.getStepSize())
-        lambda_sampled = []
-        for bias_cycle in range(self.number_cycle_of_bias_update):
-            for swap_cycle in range(self.number_swap_before_bias_update):
-                new_lambda = self._select_new_lambda()
-                self._update_lambda(new_lambda)
-                lambda_sampled.append(new_lambda)
+
+        for bias_cycle in range(number_cycle_of_bias_update):
+            for swap_cycle in range(number_swap_before_bias_update):
                 self.simulation.step(number_md_steps_between_lambda_change)
 
-                energy_index = swap_cycle + bias_cycle * self.number_swap_before_bias_update
+                energy_this_step = self._compute_energies()
+                energy_index = swap_cycle + bias_cycle * number_swap_before_bias_update
+                energies[energy_index, :] = energy_this_step
+                self.lambdas_sampled.append(self.current_lambda)
+                self.lambdas_counts[np.where([self.current_lambda == lbd for lbd in self.lambdas])[0][0]] += 1
                 print(energy_index)
-                energies[energy_index, :] = self._compute_energies()
-            self._update_biases()
 
-        return self._run_mbar(energies, lambda_sampled)
+                new_lambda = self._select_new_lambda(energy_this_step)
+                self._update_lambda(new_lambda)
+            self._update_biases(energies[: (energy_index + 1), :])
+
+        final_free_energies = self._run_mbar(energies)
+        return {
+            "free_energy_differences": final_free_energies,
+            "lambda_counts": self.lambdas_counts,
+            "free_energy_convergence": np.array(self.free_energy_convergence),
+        }
