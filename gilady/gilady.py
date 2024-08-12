@@ -172,7 +172,7 @@ class GiLaDy:
         final_free_energies = mbar_object.compute_free_energy_differences()["Delta_f"][0] * self.kbt
         return {
             "free_energy_differences": final_free_energies,
-            "lambda_counts": self.lambdas_counts,
+            "lambdas_counts": self.lambdas_counts,
             "free_energy_convergence": [
                 ((i + 1) * time_between_lambda_change, energy) for i, energy in enumerate(np.array(self.free_energy_convergence))
             ],
