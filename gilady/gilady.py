@@ -8,6 +8,8 @@ import openmm
 from openmm import app, unit
 from pymbar import mbar
 
+# TODO: return some transition statisics: do you jump mostly to adjactent lambdas, or can you have large jumps?
+
 
 @dataclasses.dataclass
 class GiLaDy:
@@ -23,6 +25,12 @@ class GiLaDy:
     lambdas_counts: np.ndarray = dataclasses.field(default_factory=lambda: np.array([], dtype=int))
     current_biases: np.ndarray = dataclasses.field(default_factory=lambda: np.array([], dtype=float))
     free_energy_convergence: list[np.ndarray] = dataclasses.field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Setups constants."""
+        self.kbt = (self.simulation.integrator.getTemperature() * unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA).value_in_unit(
+            unit.kilocalorie_per_mole
+        )
 
     def _update_lambda(self, new_lambda: float) -> None:
         # Large changes in lambda, especially from a fully non interacting system
@@ -85,10 +93,8 @@ class GiLaDy:
         penalty = 10.0 if all(self.current_biases == 0) else 1.0
         bias_based_on_frequency = penalty * 2 ** (self.lambdas_counts - min(self.lambdas_counts))
         energy_plus_bias = energy_this_step + self.current_biases + bias_based_on_frequency
-        kbt = (self.simulation.integrator.getTemperature() * unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA).value_in_unit(
-            unit.kilocalorie_per_mole
-        )
-        probas = np.exp(-(energy_plus_bias - min(energy_plus_bias)) / kbt)
+
+        probas = np.exp(-(energy_plus_bias - min(energy_plus_bias)) / self.kbt)
         probas /= np.sum(probas)
 
         new_lambda = np.random.choice(self.lambdas, p=probas)
@@ -96,7 +102,7 @@ class GiLaDy:
         return new_lambda
 
     def _update_biases(self, energies: np.ndarray) -> None:
-        current_free_energies = self._run_mbar(energies)
+        current_free_energies = self._get_free_energy_from_mbar(energies)
         self.free_energy_convergence.append(current_free_energies)
         self.current_biases = -current_free_energies
 
@@ -107,11 +113,12 @@ class GiLaDy:
             energies.append(self.simulation.context.getState(getEnergy=True).getPotentialEnergy())
         return np.array([e.value_in_unit(unit.kilocalorie_per_mole) for e in energies])
 
-    def _run_mbar(self, energies: np.ndarray) -> np.ndarray:
-        kbt = (self.simulation.integrator.getTemperature() * unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA).value_in_unit(
-            unit.kilocalorie_per_mole
-        )
+    def _get_free_energy_from_mbar(self, energies: np.ndarray) -> np.ndarray:
+        mbar_object = self._run_mbar(energies)
 
+        return np.array(mbar_object.compute_free_energy_differences()["Delta_f"][0] * self.kbt)
+
+    def _run_mbar(self, energies: np.ndarray) -> mbar.MBAR:
         # Order energies
         u_nk = np.zeros(energies.shape)
         n_k = np.zeros(len(self.lambdas))
@@ -120,11 +127,9 @@ class GiLaDy:
             indices_where_lambda_was_sampled = np.where([lbd == lambda_value for lbd in self.lambdas_sampled])[0]
             n_k[lambda_index] = len(indices_where_lambda_was_sampled)
             for index in indices_where_lambda_was_sampled:
-                u_nk[counter, :] = energies[index, :] / kbt
+                u_nk[counter, :] = energies[index, :] / self.kbt
                 counter += 1
-        mbar_object = mbar.MBAR(u_nk.T, n_k)
-
-        return np.array(mbar_object.compute_free_energy_differences()["Delta_f"][0] * kbt)
+        return mbar.MBAR(u_nk.T, n_k)
 
     def run(
         self,
@@ -163,9 +168,13 @@ class GiLaDy:
                 self._update_lambda(new_lambda)
             self._update_biases(energies[: (energy_index + 1), :])
 
-        final_free_energies = self._run_mbar(energies)
+        mbar_object = self._run_mbar(energies)
+        final_free_energies = mbar_object.compute_free_energy_differences()["Delta_f"][0] * self.kbt
         return {
             "free_energy_differences": final_free_energies,
             "lambda_counts": self.lambdas_counts,
-            "free_energy_convergence": np.array(self.free_energy_convergence),
+            "free_energy_convergence": [
+                ((i + 1) * time_between_lambda_change, energy) for i, energy in enumerate(np.array(self.free_energy_convergence))
+            ],
+            "mbar_object": mbar_object,
         }
