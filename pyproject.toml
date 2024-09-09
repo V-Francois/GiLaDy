@@ -65,6 +65,7 @@ ignore = [
     # Not used in NumPy, overridden in Google style
     "D212", # https://docs.astral.sh/ruff/rules/multi-line-summary-first-line/
     "D415", # https://docs.astral.sh/ruff/rules/ends-in-punctuation/
+    "PLR2004", # magic values
     "T201",
     "S603",
 ]
