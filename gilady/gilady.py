@@ -2,11 +2,12 @@ import dataclasses
 import tempfile
 from collections.abc import Callable
 
-import _utils
 import numpy as np
 import openmm
 from openmm import app, unit
 from pymbar import mbar
+
+from gilady import _utils
 
 # TODO: return some transition statisics: do you jump mostly to adjactent lambdas, or can you have large jumps?
 
@@ -162,7 +163,9 @@ class GiLaDy:
                 energies[energy_index, :] = energy_this_step
                 self.lambdas_sampled.append(self.current_lambda)
                 self.lambdas_counts[np.where([self.current_lambda == lbd for lbd in self.lambdas])[0][0]] += 1
-                print(energy_index)
+
+                percentage_done = (energy_index + 1) / total_number_of_energy_evaluations * 100
+                print(f"{percentage_done:.2f}% done")
 
                 new_lambda = self._select_new_lambda(energy_this_step)
                 self._update_lambda(new_lambda)
@@ -174,7 +177,11 @@ class GiLaDy:
             "free_energy_differences": final_free_energies,
             "lambdas_counts": self.lambdas_counts,
             "free_energy_convergence": [
-                ((i + 1) * time_between_lambda_change, energy) for i, energy in enumerate(np.array(self.free_energy_convergence))
+                (
+                    (i + 1) * time_between_lambda_change * number_swap_before_bias_update,
+                    energy,
+                )
+                for i, energy in enumerate(np.array(self.free_energy_convergence))
             ],
             "mbar_object": mbar_object,
         }
